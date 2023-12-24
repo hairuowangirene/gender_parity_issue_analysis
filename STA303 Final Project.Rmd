@@ -1,0 +1,528 @@
+---
+title: "Gender Parity issues for Black Saber Software"
+author: "Report prepared for Black Saber Software by One Company"
+date: '2021-04-21'
+output:
+  word_document:
+    toc: yes
+    toc_depth: '2'
+  pdf_document:
+    template: report.tex
+    toc: yes
+    toc_depth: 2
+lang: en
+subtitle: Related to Salary, Promotion and Hiring Process
+titlepage: yes
+titlepage-color: 6C3082
+titlepage-text-color: FFFFFF
+titlepage-rule-color: FFFFFF
+titlepage-rule-height: 2
+---
+
+```{r, message = FALSE, echo=FALSE}
+# Setup the library in order to use
+library(tidyverse)
+library(knitr)
+library(lme4)
+library(ggplot2)
+library(lmtest)
+```
+
+
+```{r,message=FALSE, echo=FALSE}
+# This chunk provides an example of some things you can do with RMarkdown to make your report creation process easier
+
+# read in the data
+black_saber_current_employees <- read_csv("data/black-saber-current-employees.csv")
+
+final_hires_newgrad_2020 <- read_csv("data/final-hires-newgrad_2020.csv")
+
+phase1_new_grad_applicants_2020 <- read_csv("data/phase1-new-grad-applicants-2020.csv")
+
+phase2_new_grad_applicants_2020 <- read_csv("data/phase2-new-grad-applicants-2020.csv")
+
+phase3_new_grad_applicants_2020 <- read_csv("data/phase3-new-grad-applicants-2020.csv")
+```
+
+
+```{r salary_data, message=FALSE, echo=FALSE}
+# data cleaning
+black_saber_current_employees <- black_saber_current_employees %>%
+  filter(gender %in% c("Man","Woman")) %>%
+  #Change salary into numeric
+  mutate(salary = as.numeric(str_remove_all(salary,"\\$|,"))) %>% 
+  mutate(salary_level = case_when(salary >= 120000 ~ "High Level", 
+                                  salary >= 60000 ~ "Mediam Level", 
+                                  salary < 60000 ~ "Low Level")) %>% 
+  mutate(salary_level = fct_relevel(salary_level, "Low Level", after=2))
+```
+
+```{r promotion_data, message=FALSE, echo=FALSE}
+# Create a new dataset to count the number of promotion in the company
+black_saber_current_promotion = black_saber_current_employees%>%
+  filter(gender %in% c("Man", "Woman")) %>% 
+  # we want to count the number of promotion for each employee
+  group_by(employee_id) %>%
+  # create a new colomn of number of promotion
+  mutate(number_of_promotion=length(unique(role_seniority))-1) %>% 
+  # create a new colomn of work years
+  mutate(work_year = n()/4) %>% 
+  # we only want to check the information of current time
+  filter(financial_q=="2020 Q4")
+```
+
+```{r hiring_data, message=FALSE, echo=FALSE}
+# Import relevant datasets
+phase1<-phase1_new_grad_applicants_2020
+phase2<-phase2_new_grad_applicants_2020
+phase3<-phase3_new_grad_applicants_2020
+final_offer<-final_hires_newgrad_2020
+
+#Organize dataset, and add a dummy variable to indicate wheter a candidate 
+#successfully enter phase 2 after phase 1.
+phase1<-phase1%>%
+  filter(gender != "Prefer not to say") %>%
+  mutate(success1 = 1) %>%
+  mutate(success1 = ifelse(!(applicant_id %in% phase2$applicant_id), 0,success1))
+
+#Organize dataset, and add a dummy variable success2 to indicate wheter a candidate 
+#successfully enter phase 3 after phase 2.
+phase2<-phase2%>%
+  filter(gender != "Prefer not to say") %>%
+  mutate(success2 = 1) %>%
+  mutate(success2 = ifelse(!(applicant_id %in% phase3$applicant_id), 0,success2))
+
+#Organize dataset, and add a dummy variable success3 to indicate wheter a candidate 
+#successfully receive the final offer after phase 3.
+phase3<-phase3%>%
+  left_join(phase2) %>% 
+  mutate(success3 = 1) %>%
+  mutate(success3 = ifelse(!(applicant_id %in% final_offer$applicant_id), 0,success3)) %>% 
+  filter(gender %in% c("Woman", "Man"))
+```
+
+
+\newpage
+# Executive summary
+Gender parity is a critical social issue in current years, such as glass ceiling effect to prevent females get top management position. Furthermore, it is important for females to have the same treament as the males with same level of ability and work in a fair environment. In this statistical report, we are going to analysis the data from Black Saber Software to investigate whether gender parity is existed in salaries, promotion and phases of hiring. 
+
+We would divide the objective into three sections firstly, and each section has a research problrm that corresponds to the topic of salary, promotion and hiring respectively. As well, we would mainly consider about salary changes and number of promotion until 2020 Q4. Since the latest data would provide more accurate information in data visualization and fitting model compare with the others. We would provide conclusion about gender parity with specific information of each research problrms by analysing the data, including data cleaning and selection, data visualization and fitting proper models. 
+
+As we have several key finding by data visualization and fitting model related to gender parity and salary, promotion and hiring:
+
+* Most males tend to get higher level of salary compare with females in the same team, level of position and productivity respectively. 
+
+* Gender has significant impact to the level of salary of different gender employees. 
+
+* The number of promotion for males are more than females in the same team and productivity respectively.
+
+* Gender has significant relationship with the number of promotion. 
+
+* The AI service of hiring process which including 3 phases does not have obvious gender preferences.
+
+However, there are limitations and drawback about the result of this study. As we fitted several model with different predict variables to reduce the difference between estimated results and actual results, but we could not consider all of variables. For example, if there are more male employees in the company also lead to the result that similar with gender inequality. Therefore, we would like to fit varied typies of model for the further study in order to get more precision results. 
+
+On the other hand, we only used the current updated data of 2020 quarter 4 for the first research question. However, the historical data supposed to be considerable because it could increase the accuracy of model explaination. Therefore, we supposed to analysis the data with longer-range of time to check whether the conclusion is similar with current conclusion or not. 
+
+
+\newpage
+The straightforward results of the study as shown in the summarized tables below:
+
+```{r, echo=FALSE}
+# create a table for number of different salar level for male employees and female employees
+table.salary=table(black_saber_current_employees$salary_level, black_saber_current_employees$gender)
+kable(table.salary, caption="Salary Level and Gender of Employees")
+```
+
+Table 1 shows the number of male and female employees with different level of salary. It is obviously show that male employees has higher level of salary than female employees in all salary level. 
+
+```{r, echo=FALSE}
+# create a table for number of promotion for male employees and female employees.
+table.promotion=table(black_saber_current_promotion$number_of_promotion, black_saber_current_promotion$gender)
+kable(table.promotion, caption="Number of Promotion for Male and Female Employees")
+```
+
+As Table 2. shown the number of promotion for male and female employees in the company, we could see that there are more promotion chances for male employees. For all number of promotion, there are more male employees than female employees. 
+
+As a conclusion, the study would demonstrate the gender of employees has significant impact to the promotion and salary which decided by top management. As well, another objective of the study was to investigate if there are gender inequality issue in the phases of hiring by AI service. However, we supposed to consider the results of hiring depends on other ability of the interviewees which is not straightforward to shown by the gender ratio of interviewees. Therefore, we would like to fit more models and discussed the result in the below discussion section. 
+
+
+\newpage
+# Technical report
+
+## Introduction
+
+In current years, the gender equality is an critical issues in order to providea a fair work environment for females. In this project, we would analysis the data from Black Saber Software and demonstrate if the salary, promotion and hiring progress depend on the ability of the employees or the gender. 
+
+First of all, the first research question is related to salary which include the if there are salary difference between male and female in the company. We would consider about the predict variable for ability of the employees related to the salary, such as productivity, position and team of the employees. As well, the gender of the employees as predicted variable. Linear mixed model was used to determine the association between salary, which is numberic variable, and other predicted variables. Meanwhile, the position and teams of employees could influence the salary level as well. For example, the salary of top management would be higher than the salary of entry-level. Thus, the position and teams would fitted as random effect for mixed linear models. In order to select a suitable model and interpret the results of the model, we would perform likelihood ratio test to select the proper model. As well, the likelihood ratio test demonstrate the model include gender as fixed effect is better model could explain the models and gender indeed has significant impact to the salary of the employees. 
+
+The second research question is related to promotion about the difference of promotion chance between the male and female employees. We would use the number of promotion for individual employees to perform data visualization and fit the Poisson regression model that using productivity and team of employees as predicted variables. As well, the work year would have relationship with promotion chances and we could not compare the observation with different work years directly. Therefore, we would add an offset term to remove the influence by the different work years. The boxplots and point plot shows the number of promotion for male employees are more than the female employees under the same abilities. Furthermore, the p-value of the Poisson regression model shows the promotion would be more likely occur for the male employees. 
+
+The third research question is related to results of the hiring phases by AI service between male and female employees. We modelled the results of different hiring phasees with logistic regression model and linear mixed model, using the binary variable about passes the phases as response variable. As well, the other variable related to ability of interviewees as predicted variables, such as gpa, work experience and so on. The result of logistic model interpret the success in the different phases would less like occur for the female interviewees. However, the likelihood ratio test of mixed linear model demonstrate the gender as predict variable does not have significant impact to the phase result to the contrary. We could not conclude based on the opposited results of the models, but we could conclude the hiring result more likely depend on the ability of the interviewee but the the success are less likely occur for female interviewees. 
+
+We conclude that the gender ineuqality issue would happened in the events that decided by top management such as promotion and salary. The promotion and salary do not completely depend on the ability of the employees.  On the other hand, the gender inequality issue does not exist in the different phases of hiring. The ability of the employees would play a critical role in the phases of hiring. 
+
+
+
+### Research questions
+
+* The relationship between salary gap and group of male and female in the company and figure out the specific salary gap. 
+
+* The relationship between the promotion differences and gender under the same conditions in the company. 
+
+* The relationship betweee successes in the phases of hiring and the gender of interviewees. 
+
+
+\newpage
+## Salary Level Difference and Gender in the Company
+### Methods
+
+The data we are going to use have 8 variables and the salary is the numberic variable as response variable. As well, the rest variables related to the ability including the team, position, productivity, leadership and gender of the employees. In order to reduce the complexity of the model, we would use the current updated data which is 2020 quarter 4 to perform the data visualization and fitting models. 
+
+Firstly, we would have three plots to illustrate the salary level for the data visualization purpose in the statistical report. There would be two boxplots to compare the salary level of employees with team and position of the employees respectively. Since Both of team and position of employees are categorical variables, and boxplot would divide into different categories. As well, salary of employees is numberical variables, and the boxplot could demonstrate the understandable quartile for the salary of employees. 
+
+Moreover, there would be point plot to compute the salary level of employees with the same productivity in order to show whether productivity of employees would influence the salary level or not. As well, the point plot would show the productivity of individual employee in the company because we would focus on individual salary rather than the salary of a group. 
+
+Furthermore, we are going to use mixed linear models to fit the data because salary in the data is numberical variable. We would like to focus on the relationship between the other predict variables and the salary as well, such as the estimated coefficient and statistical significant to the salary as response variable. Therefore, we would select the proper predict variables to explain the data well in order to increase the accurate of the model. In addition, we would use likelihood ratio test to select the better model without overfitting problem. 
+
+First of all, gender is the critical fixed effect variable related to our objective of the study. As well, we would select role seniority and team as random effect because the most salary would depends on the position and different department. For example, the salary of employees in the top management or core department would have higher level of salary. In addition, we want to check whether salary has relationship with the ability of the employees. Therefore, productivity and leadership of individual employee could considered as fixed effect variable as well. 
+
+Moreover, we would perform likelihood ratio test to select the suitable until we figured out the model and avoid the overfitting problems. In order to check if the salary depends on gender of the employees, we would perform likelihood ratio test to test final model with gender as predict variable and without gender. 
+
+
+### Results
+```{r salary_plot1, message=FALSE, echo=FALSE}
+# create a visualisation
+black_saber_current_employees %>%
+  # only want to use the current updated data
+  filter(financial_q=="2020 Q4") %>%
+  # data visualization
+  ggplot(aes(x = team, y=salary, color = gender)) + 
+  geom_boxplot() +
+  labs(caption = str_c("Figure1. Boxplot of Team and Salary\n", "Created by: One Company\n", "Date of April 21 2021"))
+```
+
+According to Figure 1, the boxplot explores if the salary would be different from gender in the teams of the company. The figure shows the most teams in the company provide higher salary to male employees than female employees without "Software" and "People and Talent" teams. For example, the mediam salary of male employees is almost equal to the 75% quartile salary of female employees. As well, the maximum salary for male employees is more than female employees in the most teams. Overall, the salary level of male employees is more than female employees in the same team. 
+
+```{r salary_plot2, echo=FALSE}
+# data visualization
+black_saber_current_employees %>%
+  filter(financial_q=="2020 Q4") %>%
+  # reorder the variables of role seniority
+  mutate(role_seniority=fct_relevel(role_seniority, "Manager", after=7)) %>% 
+  mutate(role_seniority = fct_relevel(role_seniority, "Director", after=7)) %>% 
+  # create a plot
+  ggplot(aes(x = role_seniority, y=salary, color = gender)) + 
+  geom_boxplot() +
+  labs(caption = str_c("Figure 2. Boxplot of Role Seniority of Employee and Salary\n", "Created by: One Company\n", "Date of April 21 2021"),
+       x="Positions of Employees")
+```
+
+Figure 2 shows the salary of different salary for different positions in the company. We could clearly see that the most team has higher salary for the male employees than female employees. The median salary of male group is almost equal to the 75% quartile of female salary for the most group. Moreover, the salary of vice president for male employees is obviously exceed the salary of female employees. Overall, the male employees has higher salary than the female employees in the same team for the company.
+
+
+```{r salary_plot3, echo=FALSE}
+# data visualization
+ black_saber_current_employees %>%
+  # only want to analysis the current updated data
+   filter(financial_q=="2020 Q4") %>%
+  # create a point plot
+   ggplot(aes(x= productivity, y = salary, color = gender)) + 
+   geom_point() +
+   theme_minimal() + 
+   labs(caption = str_c("Figure 3. Point Plot of Productivity and Salary\n", "Created by: One Company\n", "Date of April 21 2021"))
+```
+
+Figure 3 is a point plot show the salary for the employees with different productivity. We could see that the most employees with higher level of salary are males and there are only 2 female employees have high level of salary. Meanwhile, we could see the female employees have the same productivity as male employees have less salary. In conclusion, the salary level of male employees is more than female employees under the same productivity. 
+
+
+```{r salary_models, include=FALSE, echo=FALSE}
+# create a new dataset with current updated data only
+a <- black_saber_current_employees %>%
+   filter(financial_q=="2020 Q4")
+
+# fit a mixed linear model with gender as fixed effect and role seniority as random intercept only
+model.salary_1 <- lmer(salary~gender+(1|role_seniority), data = a)
+# summarize the model 1
+summary(model.salary_1)
+
+# fit a mixed linear model with gender and productivity as fixed effect and role seniority as random effect
+model.salary_2 <- lmer(salary~gender+(1|role_seniority)+productivity, data = a)
+# summarize the model 2
+summary(model.salary_2)
+
+# fit a mixed linear model with gender and productivity as fixed effect and role seniority 
+#and team as random effect
+model.salary_3 <- lmer(salary~gender+(1|role_seniority)+productivity+(1|team), data = a)
+# summarize the model 3
+summary(model.salary_3)
+
+# fit a mixed linear model with gender, productivity and leadership of employees as fixed effect
+# and role seniority of employees and team as random effect
+model.salary_4 <- lmer(salary~gender+(1|role_seniority)+productivity+(1|team)+leadership_for_level, data = a)
+# summarize the model
+summary(model.salary_4)
+
+# fit a mixed linear model without gender as fixed effect
+model.salary_5 <- lmer(salary~(1|role_seniority)+productivity+(1|team)+leadership_for_level, data = a)
+# summarize the model
+summary(model.salary_5)
+```
+
+
+```{r, echo=FALSE}
+# perform likelihood ratio test to select the proper model
+kable(lmtest::lrtest(model.salary_1, model.salary_2), caption="Result of Likelihood Ratio Test of Model 1 and Model 2", digits=6)
+```
+
+Table 3. shows the likelihood ratio test results, we could see the p-value is smaller than 0.05 which indicate the model with productivity as fixed effect and role seniority as random effect could explain the data better. As well, the position of employees would have influence to the salary level. 
+
+```{r, echo=FALSE}
+# perform likelihood ratio test to select the proper model
+kable(lmtest::lrtest(model.salary_2, model.salary_3), caption = "Result of Likelihood Ratio Test of Model 2 and Model 3", digits=20)
+```
+
+Table 4. shows the likelihood ratio test results, we could see the p-value is smaller than 0.05 and the the  model which add team as random effect could explain the data better. As well, the result indicates that the team would influence the salary of employees. 
+
+```{r, echo=FALSE}
+# perform the likelihood ratio test to select the proper model
+kable(lrtest(model.salary_3, model.salary_4), caption="Result of Likelihood Ratio Test of Model 3 and Model 4", digits=10)
+```
+
+Table 5 shows the result of likelihood ratio test, we could see p-value is smaller than 0.05 and the model which add leadership of employees as fixed effect could explain the data better with more accuracy.
+
+
+```{r, echo=FALSE}
+# perform the likelihood ratio test to select the proper model
+kable(lmtest::lrtest(model.salary_5, model.salary_4), caption="Result of Likelihood Ratio Test of Model 4 and Model 5", digits=16)
+```
+
+Table 6 shows the result of likelihood ratio test, we could see the p-value is smaller than 0.05 which indicate the model which remove gender as predict variable could not explain the data well. The smaller p-value demonstrate the complicated model is proper and that could explain the data with high accuratcy. Therefore, the result also demonstrate the gender of employees is significant impact to the salary of the employees. 
+
+
+\newpage
+## Promotion Differences and the Gender in the Company
+ 
+### Methods
+
+The data we are going to perform analysis has 10 variable, which the number of promotion would be the response variable. The rest predicted variable related to ability is productivity and team of individual employees. Meanwhile, the work years would be a confounder and we would set a offset term to reduce its impact while fitting the poisson Regression model. 
+
+The object of this research question was to investigate the relationship between promotion and group of gender. As well, the data from Black Saber Software provided the information about role seniority of employees from quarter 3 2015 to quarter 4 2020. Therefore, we are going to add a new variable to record the number of position changes for each employee until current information update. 
+
+First of all, we would have boxplot compare the number of promotion with team of employees respectively. Since team of employee is a category variable and number of promotion is numeric variable with small range. The boxplot could provide median and interquartile of the number of promotion for each team which is understandable and straightforward to show the specific differences. 
+
+Secondly, we are going to use point plot to compare the number of promotion and the productivity of employees. Since both of productivity and number of promotion are numberic variable, and we would like to show the promotion of individually employees under same productivity instead of all male or female employees under same produtivity. Therefore, we could compare the promotion difference straightforward by fixing specific productivity on x-axis. 
+
+In addition, we modelled the number of promotions with Poisson Regression model, using productivity and gender and team as predict variables. Since Poisson regression model was used to determine the count data as response variable and number of promotion is a count variable. Meanwhile, there would be a confounder in the data which is work years. In common, the employee with longer work year would have more promotion chances and the work year for each employee in the data is different. It is not reasonable to compare the number of promotion under different condition of work experience. Therefore, we would like to add an offset term to Poisson regression model in order to allow the model compare the rate instead of count. 
+
+\newpage
+### Results
+
+```{r promotion_plot1, echo=FALSE}
+# boxplot to compare the number of promotion in the different teams of two genders
+black_saber_current_promotion %>% 
+  ggplot(aes(x=team, y=number_of_promotion, color=gender))+
+  geom_boxplot()+
+  theme_minimal()+ 
+  labs(y="Number of Promotions", 
+       caption=str_c("Figure 4. Boxplot of Number of Promotions in Different Teams\n", "Created by: One Company\n", "Date of April 21 2021"))
+```
+
+According to Figure 4, which show the boxplot of number of promotion in different team of two gender groups.  We could see the maximum number of promotion of male employee are more than female employees in the most teams. There is a group with maximum number of promotion of female employees is more than male employees which is data team. However, there are outliers in male employee of data group and that is equal to the outlier of promotion number in data team. In addition, the median number of promotion of male employees are equal to the third quartile of female group for the most team.
+
+Overall, the number of promotion of male employees is obviously more than the female group in the most teams in the company. 
+
+
+```{r promotion_plot2, echo=FALSE}
+# create a point plot to compare the number of promotion with different level of productivity of 
+# different gender of employees
+black_saber_current_promotion %>% 
+  ggplot(aes(x=productivity, y=number_of_promotion, color=gender))+
+  geom_point()+
+  theme_minimal()+
+  labs(y="Number of Promotions",
+       caption=str_c("Figure 5. Bar Plot of Number of Promotions and Productivity\n","Create by: One Company\n", "Date of April 21 2021"))
+```
+
+According to Figure 5, which show the number of promotion and productivity of employees of two gender groups. Based on the same level productivity, the number of promotion of male employees is much more than female employees. For example, there are three employees who have productivity of 50 and the female employee has no promotion but two male employees have one and two promotions respectively. Based on the whole figure, there are 5 employees with more than 5 of promotions and there is only one female employees. In addition, the female employee has much more productivity than the male employees.
+
+As conclusion, the number of promotion of male employees is more than female employee under the same productivity. 
+
+```{r promotion_model1, include=FALSE}
+# fit a Poisson model
+model.promotion_6 = glm(number_of_promotion ~ gender+team+productivity, offset=log(work_year), data=black_saber_current_promotion, family=poisson(link="log"))
+# summarize the model
+summary(model.promotion_6)
+```
+
+\newpage
+```{r, echo=FALSE}
+# create a table of the estimated coefficients and p-values of the parameters
+kable(summary(model.promotion_6)$coefficients, caption="Estimated Coefficients and P-value of the Parameters")
+```
+
+Table 7 shows the estimated coefficients and p-value of predictor variable of the Poisson regression model. There is only gender of predictor variable has p-value less than 0.05 which means the gender has statistical significant to the number of promotion as response variable. 
+
+In addition, the estimated coefficient of gender is -0.3505085 which is negative. The estimated coefficient demonstrate the promotion is more likely to occur in gender with male. 
+
+The Poisson regression model demonstrate that gender has significant influence to the number of promotion and promotion would occur more likely for male employees. 
+
+\newpage
+## The Gender Inequality Issues existed in Hiring Process or not
+
+### Method 
+
+In order to study whether gender is a relevant factor in the hiring process, we need to use four datasets. The datasets include the ability and gender of the interviewees for the different phases. As well, we could match the same applicant id to figure out which interviewee pass the phases. 
+
+Firstly, we would to explore if there is a gender bias for those candidates who can successfully complete the first phase. The first step that we do is to delete those candidates who prefer not to say their gender in the dataset of phase 1 because we would like to reduce the complexity of the data and do not want to get the confused result. As well, we add a dummy variable to indicate if the interviewees passed in the phase one of hiring. Since the outcome variable success is a dummy variable, we would fit a logistic model. The variable gender as a predictor and other variables, the team applied for, cover letter, cv, gpa, extracurriculars, and work experiences are predicted variables. In addition, we also consider variables the team applied for might be the potential grouping unit. Therefore, we also fit a linear mixed model by adding a random intercept on the team applied for. 
+
+Secondly, we want to test whether the process from phase 2 to phase 3 has and biases about gender. The method is very similar. We remove those candidates who do not want to say their gender in the dataset of phase 2. Then add a dummy variable to the dataset to indicate whether this candidate successfully entered phase 3 from phase 2. As well, we figure out the gender of the interviewees by matching the id with previous dataset. Then we run a logistic model between binary outcome variables of the intervieww passes the phase 2 of hiring and 11 predictors. Similarly, we add random intercepts for the variable team applied for conduct an additional generalized linear mixed model to verify the results of logistic model. The process from phase 1 to phase 2 and phase 2 to phase 3 are conducted by AI. Therefore, those model results would indicate whether the AI has a gender preference during the hiring process.  
+
+Finally, we would like to test whether the process from phase 3 to receive the final offer. We create a dummy variable in the phase 3 dataset to indicate whether this candidate is successfully hired in the end. Then we fit a logit model with binary outcome variable of interviewees receive the final offer and the predictors gender and the performance in the phase 1 and 2 to test whether the coefficient of gender is significant or not.
+
+\newpage
+### Results
+```{r, echo=FALSE, include=FALSE}
+#fit a logit model for phase 1
+phase1.logistic<-glm(success1~team_applied_for+cover_letter+cv+gpa+gender
+        +extracurriculars+work_experience, data=phase1, family = binomial(link=logit))
+```
+
+```{r, echo=FALSE}
+# create a table for estimated ceofficients of logistic model for phase 1
+kable(summary(phase1.logistic)$coefficient, caption="Estimated Coefficient and P-value of Logistic Regression Model for Phase 1")
+```
+
+According to the table of estimated coefficient of the logistic regression model, that shows the coefficient of gender is greater than 0. The coefficient indicates that the success in phase 1 is more likely to occur in female interviewees. 
+
+```{r phase1, include=FALSE}
+#Fit two linear mixed model by including gender as fixed effect or not.
+phase1.glm1<-glmer(success1~(1|team_applied_for)+cover_letter+cv+gpa
++extracurriculars+work_experience,data=phase1,family = binomial(link=logit))
+
+phase1.glm2<-glmer(success1~(1|team_applied_for)+cover_letter+cv+gpa+gender
++extracurriculars+work_experience,data=phase1,family = binomial(link=logit))
+```
+
+```{r, echo=FALSE}
+#create a table for likelihood ratio test for the linear mixed model for phase 1
+kable(lrtest(phase1.glm1, phase1.glm2), caption="Likelihood Ratio Test Result of Models of Phase 1")
+```
+
+According to the table of likelihood ratio test result of phase 1 models, we could see the p-value is greater than 0.05 which indicate the simpler model could explain the data better. Thus, the likelihood ratio test of generalized linear models demonstrate the model without gender as predict variable is better. Therefore, the gender as predict variable does not have significant impact to the success for the phase 1 of hiring and the result of phase 1 depends on the ability of the interviewees. That is similar with the result of logistic model above.
+
+The result of both logistic model and linear mixed model shows that there is no gender inequality for the phase 1 of hiring by AI service in the company. 
+
+
+```{r, echo=FALSE, include=FALSE}
+#fit a logit model for phase 2
+phase2.logistic<-glm(success2~team_applied_for+cover_letter+cv+gpa+gender+extracurriculars+work_experience
+                     +technical_skills+leadership_presence
+                     +speaking_skills+writing_skills, data=phase2, family = binomial(link=logit))
+```
+
+```{r, echo=FALSE}
+# create a table for estimated coefficient of logistic model for phase 2
+kable(summary(phase2.logistic)$coefficient, caption="Estimated Coefficients and P-value of Logistical Model for Phase 2")
+```
+
+According to the table of estimated coefficient of logistic regression model of phose 2, we could see the estimated coefficient is smaller than 0. The coefficient indicates the success in phase 2 of interview is less likely occur for the female interviewees. However, the p-value of the gender is greater than 0.05 which mean gender does not have significant impact to the result of hiring phase 2. Therefore, we could not make conclusion so far and we supposed to fit more models. 
+
+```{r, echo=FALSE, include=FALSE}
+#Fit two linear mixed models by including gender as fixed effect or not.
+phase2.glm1<-glmer(success2~(1|team_applied_for)+cover_letter+cv+gpa+gender
++extracurriculars+work_experience+technical_skills+
+  leadership_presence+speaking_skills+writing_skills,
+data=phase2,family = binomial(link="logit"))
+
+phase2.glm2<-glmer(success2~(1|team_applied_for)+cover_letter+cv+gpa
++extracurriculars+work_experience+technical_skills+
+  leadership_presence+speaking_skills+writing_skills,
+data=phase2,family = binomial(link="logit"))
+```
+
+```{r, echo=FALSE}
+# create a table for likelihood ratio test of the models for phase 2
+kable(lrtest(phase2.glm2, phase2.glm1), caption="Likelihood Ratio Test Result of Models for Phase 2")
+```
+
+According to the table of likelihood ratio test results of the models for phase 2, the p-value is greater than 0.05 that indicate the simpler model could explain the data better. Thus the likelihood ratio test of generalized linear model demonstrate the model without gender as predict variable is more proper. Therefore, the gender of employees does not have significant impact to success for phase 2 of hiring and the result of phase 2 depends on the ability of the interviewees instead of gender. That has the opposite direct with the results of logistic model above. 
+
+```{r phase3.logistic, echo=FALSE, include=FALSE}
+#fit a logit model to test whether there is a gender bias on the final phase of hiring process
+phase3.logistic<-glm(success3~gender+interviewer_rating_1+interviewer_rating_2,data=phase3,family = binomial(link=logit))
+summary(phase3.logistic)
+```
+
+```{r phase3.model, echo=FALSE}
+# Create a table to perform the estimate coefficient of logistical model for the final phase
+kable(summary(phase3.logistic)$coefficient, caption="Estimated Coefficient and P-value of the Models for Phase 3")
+```
+
+According to the table of estimated coefficients of logistic regression model for final phase of hiring process, we could see the coefficient of gender is less than 0. The coefficient indicates the success in entire interview is less likely occur for the female interviewees. Therefore, the successes in the phase 3 of hiring might have relationship with the gender of interviewees. However, the p-value of gender is greater than 0.05 that means the gender does not significant to the final result of hiring process. Therefore, we could not make conclusion about the gender inequality without fitting other models 
+
+
+```{r, warning=FALSE, echo=FALSE}
+# Fit two linear mixed model by including gender as fixed effect or not
+phase3.glm1=glm(success3 ~ interviewer_rating_1 + interviewer_rating_2+gender, data=phase3, family=binomial)
+
+phase3.glm2=glm(success3 ~ interviewer_rating_1 + interviewer_rating_2, data=phase3, family=binomial)
+```
+
+```{r, echo=FALSE}
+# create a table for likelihood ratio test of the models for the final phase
+kable(lrtest(phase3.glm1, phase3.glm2), caption="Likelihood Ratio Test Result of Model for Phase 3")
+```
+
+According to the table of likelihood ratio test of models for phase 3, the p-value is greater than 0.05 which indicate the simpler model could explain the data better. The simpler model does not include gender as predict variable and the gender does not have significant relationship with the success in phase 3. Therefore, the success in phase 3 of hiring depends on the performance in the first two phases instead of the genders. That has the opposite direct with the result of logistic model above.
+
+
+\newpage
+## Discussion
+
+Overall, we have figured out the solutions of the research questions above by performing data visualization and fitting proper models. The gender bias for female employees in the company existed for the surjective decisions such as promotion and salary of the employees. On the other hand, the gender inequality does not exist for the phases of hiring that provided by AI service. The AI service most likely to passes the interviewees depends on the ability instead of the gender. 
+
+The figures and the linear mixed model demonstrate the male employees have higher level of salary than the female employees under the same ability. As well, the likelihood ratio test shows the gender of employees has significant relationship with the level of salary. That means the salary most likely depends on the gender of the employee instead of ability. Even if female employee has same ability with the male employee, they could not get the same and fair level of salary as the male employees. 
+
+For the second reserach question, the figures and the Poisson regression model demonstrate that the gender parity is not satisfied for the promition in the company. As the figures show the number of promotion for male employees are obvious more than female employees when the employees under the same conditions. As well, the gender is the only statistical significant predict variable to the number of promotion and the promotion is more likely to occure for the male employees. Overall, the promotion chance would tend to provide for male employees in the company. 
+
+For the last research question, the model results have the same direct for the phases 1.  Both of logistic model and mixed linear model shows the gender does not have significant influence to the result of hiring phase 1. As well, there are more female interviewee pass the phase 1 of hiring process. Therefore, the success of phase 1 would most likely depends on the ability of the interviewee, such as the gpa or work experience. On the other hand, the model results show the opposite direct for the phase 2 and final phase. The logistic models show that the success for phase 2 and final phase tend to male interviewees but the linear mixed models demonstrate the gender does not have significant relationship with the hiring results. Therefore, the results means the success of hiring process would most likely depend on ability and there are less female interviees pass the hiring process. Overall, the hiring process by AI service provide a fair environment to the female employees because there is only criteria for the ability instead of gender. 
+
+### Strengths and limitations
+
+For all of three research questions, we figure out the proper model and plots depend on the type of the response variable. Such as we fit logistic model for the binary response variable and fit a Poisson regression model for the countable response variables. Meanwhile, we fitted more than one models rather than focus on only one model which would limit our conclusion as well. 
+
+As well, we perform the estimated coefficients and likelihood ratio test to interpret the statistical output into the understandable conclusion. Meanwhile, we make reasonable conclusion based on the models and data visualization rather than makeup the conclusion without statistical basis.
+
+We have got the solution for the research questions related to gender parity issue in the company. However, there is limitation and drawback for the models and the data as well. We supposed to figure out the potential weakness and improve the accuracy and relianbility for the further study. 
+
+First of all, we only use the current data, which is 2020 quarter 4, for analyzing the salary problem in order to reduce the complexity of the model. However, the historical data is critical to analysis because the data with more observations would increase the accuracy of the models. Therefore, we supposed to use the historical data to perform the result if we have more time for the further study.
+
+Meanwhile, we tried different predict variables to fit the model but there are more combination of the predict variable to select. Therefore, we supposed to fit more models with different predict variables in order to select the more proper model for the further study.
+
+The third limitation is that when we do Poisson regression and logit regression, we do not verify the assumptions for Poisson and logit regression. For Poisson regression, we require that the outcome variable follows a Poisson distribution. Therefore, we supposed to count the number of promotion but we are not sure about the zero of promotion represent the employee never have promotion chances for all work years or the employees do not have promotion chance in the year of data collection. That would lead to zero-inflated and reduce the reliability of the model result. For the further study, we would like to fit zero-inflated Poisson model to increase the accuracy and reliability of the results. 
+
+Similarly, when we use the logit model to study the correlation of gender on the chance of successful hiring, we also need the outcome variable which is the dummy variable of success or not roughly follows binomial distributions. It is difficult for us to test those assumptions. However, if there is indeed a violation of assumptions, the reliability of our results would be undermined. Thus, we supposed to consider more about the response variable and the assumption of the model when we select the models for the further study. If there is potential violation of model assumptions, we supposed to select the other models except the potential violation. 
+
+
+\newpage
+# Consultant information
+## Consultant profiles
+
+**Yuxin Zhong**. Yuxin is a senior consultant with One Company. She specializes in data visualization and writting a statistical report. Yuxin earned her Bachelor of Science, major in Statistics and Mathmematics, from the University of Toronto in 2021.
+
+**Wanyi Wang**. Wanyi is a junior consultant with One Company. She specialize in reproducible analysis and writting a statistical report. Wanyi earned her Bachelor of Science, Majoring in Mathematics and Statistics from the University of Toronto in 2021.
+
+**Hairuo Wang**.  Hairuo is a junior consultant with One Company. She specializes in statistical communication and reproducible analysis. Hairuo earned her Bachelor of Science, Majoring in Mathematics and Statistics from the University of Toronto in 2022. 
+
+**Xiaotian Zhang**. Xiaotian is a junior consultant for One Company. He specialized in study modeling and statistical communication. Xiaotian earned his Bachelor of Science, Majoring in Mathematics and Statistics from the University of Toronto in 2021.
+
+
+
+## Code of ethical conduct
+
+1. We care any reasonable requirements from our clients and will not share their data to anyone else other than our techinical team.
+
+2. We would fully support fellow statisticians in their own fields and offer helps to new entrants. 
+
+3. We would shoulder the responsibility for our own work and give professional and independent reviews and assessments. 
